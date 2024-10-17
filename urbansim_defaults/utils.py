@@ -316,7 +316,8 @@ def lcm_estimate(cfg, choosers, chosen_fname, buildings, join_tbls, out_cfg=None
 def lcm_simulate(cfg, choosers, buildings, join_tbls, out_fname,
                  supply_fname, vacant_fname,
                  enable_supply_correction=None, cast=False,
-                 alternative_ratio=2.0):
+                 alternative_ratio=2.0,
+                 move_in_year=None):
     """
     Simulate the location choices for the specified choosers
 
@@ -326,21 +327,28 @@ def lcm_simulate(cfg, choosers, buildings, join_tbls, out_fname,
         The name of the yaml config file from which to read the location
         choice model
     choosers : DataFrameWrapper
-        A dataframe of agents doing the choosing
+        A dataframe of agents doing the choosing; this is typically jobs
+        or households
     buildings : DataFrameWrapper
         A dataframe of buildings which the choosers are locating in and which
-        have a supply
+        have a supply. This is typically buildings (for job choosers) or
+        residential units (for household choosers)
     join_tbls : list of strings
         A list of land use dataframes to give neighborhood info around the
         buildings - will be joined to the buildings using existing broadcasts.
     out_fname : string
-        The column name to write the simulated location to
+        The column name to write the simulated location to. This is typically
+        building_id (for job choosers) or unit_id (for household choosers)
     supply_fname : string
         The string in the buildings table that indicates the amount of
-        available units there are for choosers, vacant or not
+        available units there are for choosers, vacant or not.
+        This is typically job_spaces (for job choosers) or 
+        num_units (for household choosers)
     vacant_fname : string
         The string in the buildings table that indicates the amount of vacant
-        units there will be for choosers
+        units there will be for choosers.
+        This is typically vacant_job_spaces (for job choosers) or 
+        vacant_units (for household choosers) 
     enable_supply_correction : Python dict
         Should contain keys "price_col" and "submarket_col" which are set to
         the column names in buildings which contain the column for prices and
@@ -351,10 +359,12 @@ def lcm_simulate(cfg, choosers, buildings, join_tbls, out_fname,
         Value to override the setting in urbansim.models.dcm.predict_from_cfg.
         Above this ratio of alternatives to choosers (default of 2.0), the
         alternatives will be sampled to improve computational performance
+    move_in_year : int, optional
+        Sets column, move_in_year, for choosers who chose a new location
     """
     cfg = misc.config(cfg)
 
-    choosers_df = to_frame(choosers, [], cfg, additional_columns=[out_fname])
+    choosers_df = to_frame(choosers, [], cfg, additional_columns=[out_fname, 'move_in_year'])
 
     additional_columns = [supply_fname, vacant_fname]
     if enable_supply_correction is not None and \
@@ -369,10 +379,11 @@ def lcm_simulate(cfg, choosers, buildings, join_tbls, out_fname,
     available_units = buildings[supply_fname]
     vacant_units = buildings[vacant_fname]
 
-    print("There are %d total available units" % available_units.sum())
-    print("    and %d total choosers" % len(choosers))
-    print("    but there are %d overfull buildings" % \
-          len(vacant_units[vacant_units < 0]))
+    print("lcm_simulate(move_in_year={})".format(move_in_year))
+    print("There are {:,} total available units".format(available_units.sum()))
+    print("    and {:,} total choosers".format(len(choosers)))
+    print("    but there are {:,} overfull buildings".format(
+          len(vacant_units[vacant_units < 0])))
 
     vacant_units = vacant_units[vacant_units > 0]
 
@@ -386,8 +397,8 @@ def lcm_simulate(cfg, choosers, buildings, join_tbls, out_fname,
     units = locations_df.loc[indexes].reset_index()
     check_nas(units)
 
-    print("    for a total of %d temporarily empty units" % vacant_units.sum())
-    print("    in %d buildings total in the region" % len(vacant_units))
+    print("    for a total of {:,} temporarily empty units".format(vacant_units.sum()))
+    print("    in {:,} buildings total in the region".format(len(vacant_units)))
 
     if missing > 0:
         print("WARNING: %d indexes aren't found in the locations df -" % \
@@ -396,7 +407,7 @@ def lcm_simulate(cfg, choosers, buildings, join_tbls, out_fname,
         print("    correctly between the locations df and the aggregations tables")
 
     movers = choosers_df[choosers_df[out_fname] == -1]
-    print("There are %d total movers for this LCM" % len(movers))
+    print("There are {:,} total movers for this LCM".format(len(movers)))
 
     if enable_supply_correction is not None:
         assert isinstance(enable_supply_correction, dict)
@@ -455,6 +466,9 @@ def lcm_simulate(cfg, choosers, buildings, join_tbls, out_fname,
         print("    reducing locations to size of movers for performance gain")
         movers = movers.head(int(vacant_units.sum()))
 
+    # returns mapping of chooser ID to alternative ID. Some choosers
+    # will map to a nan value when there are not enough alternatives
+    # for all the choosers.
     new_units, _ = yaml_to_class(cfg).predict_from_cfg(movers, units, cfg, 
                                         alternative_ratio=alternative_ratio)
 
@@ -462,12 +476,18 @@ def lcm_simulate(cfg, choosers, buildings, join_tbls, out_fname,
     # get rid of them and they'll stay as -1s
     new_units = new_units.dropna()
 
-    # go from units back to buildings
+    # for households: go from units dataframe index to unit_id
     new_buildings = pd.Series(units.loc[new_units.values][out_fname].values,
                               index=new_units.index)
 
     choosers.update_col_from_series(out_fname, new_buildings, cast=cast)
     _print_number_unplaced(choosers, out_fname)
+
+    if move_in_year: 
+        move_in_year_series = pd.Series(data=move_in_year, index=new_units.index)
+        choosers.update_col_from_series("move_in_year", move_in_year_series, cast=True)
+        print("choosers[{},move_in_year] = \n{}".format(out_fname, 
+            choosers.to_frame(columns=[out_fname,'move_in_year']).loc[new_units.index]))
 
     if enable_supply_correction is not None:
         new_prices = buildings[price_col]
@@ -480,8 +500,8 @@ def lcm_simulate(cfg, choosers, buildings, join_tbls, out_fname,
         buildings.update_col_from_series(price_col, new_prices)
 
     vacant_units = buildings[vacant_fname]
-    print("    and there are now %d empty units" % vacant_units.sum())
-    print("    and %d overfull buildings" % len(vacant_units[vacant_units < 0]))
+    print("    and there are now {:,} empty units".format(vacant_units.sum()))
+    print("    and {:,} overfull buildings".format(len(vacant_units[vacant_units < 0])))
 
 
 def simple_relocation(choosers, relocation_rate, fieldname, cast=False):
@@ -580,24 +600,24 @@ def full_transition(agents, agent_controls, year, settings, location_fname, link
     ct = agent_controls.to_frame()
     hh = agents.to_frame(agents.local_columns +
                          settings.get('add_columns', []))
-    print("Total agents before transition: {}".format(len(hh)))
+    print("Total agents before transition: {:,}".format(len(hh)))
     linked_tables = linked_tables or {}
     for table_name, (table, col) in linked_tables.items():
-        print("Total %s before transition: %s" % (table_name, len(table)))
+        print("Total {} before transition: {:,}".format((table_name, len(table))))
     tran = transition.TabularTotalsTransition(ct, settings['total_column'])
     model = transition.TransitionModel(tran)
     new, added_hh_idx, new_linked = model.transition(hh, year, linked_tables=linked_tables)
     new.loc[added_hh_idx, location_fname] = -1
-    print("Total agents after transition: {}".format(len(new)))
+    print("Total agents after transition: {:,}".format(len(new)))
     orca.add_table(agents.name, new)
     for table_name, table in new_linked.items():
-        print("Total %s after transition: %s" % (table_name, len(table)))
+        print("Total {} after transition: {:.}".format(table_name, len(table)))
         orca.add_table(table_name, table)
 
 
 def _print_number_unplaced(df, fieldname):
-    print("Total currently unplaced: %d" % \
-          df[fieldname].value_counts().get(-1, 0))
+    print("Total currently unplaced: {:,}".format(
+          df[fieldname].value_counts().get(-1, 0)))
 
 
 def run_feasibility(parcels, parcel_price_callback,
