@@ -12,12 +12,13 @@ from urbansim_defaults import utils
 #####################
 
 
-@orca.column('buildings', 'node_id', cache=False)
+@orca.column('buildings', 'node_id', cache=True, cache_scope='step')
 def node_id(buildings, parcels):
+    print("buildings node_id(): misc.reindex(parcels.node_id, buildings.parcel_id)")
     return misc.reindex(parcels.node_id, buildings.parcel_id)
 
 
-@orca.column('buildings', 'zone_id', cache=False)
+@orca.column('buildings', 'zone_id', cache=True, cache_scope='step')
 def zone_id(buildings, parcels):
     return misc.reindex(parcels.zone_id, buildings.parcel_id)
 
@@ -74,13 +75,14 @@ def income_quartile(households):
     return s
 
 
-@orca.column('households', 'zone_id', cache=False)
+@orca.column('households', 'zone_id', cache=True, cache_scope='step')
 def zone_id(households, buildings):
     return misc.reindex(buildings.zone_id, households.building_id)
 
 
-@orca.column('households', 'node_id', cache=False)
+@orca.column('households', 'node_id', cache=True, cache_scope='step')
 def node_id(households, buildings):
+    print("households node_id(): misc.reindex(buildings.node_id, households.building_id)")
     return misc.reindex(buildings.node_id, households.building_id)
 
 
@@ -89,12 +91,12 @@ def node_id(households, buildings):
 #####################
 
 
-@orca.column('jobs', 'node_id', cache=False)
+@orca.column('jobs', 'node_id', cache=True, cache_scope='step')
 def node_id(jobs, buildings):
     return misc.reindex(buildings.node_id, jobs.building_id)
 
 
-@orca.column('jobs', 'zone_id', cache=True)
+@orca.column('jobs', 'zone_id', cache=True, cache_scope='step')
 def zone_id(jobs, buildings):
     return misc.reindex(buildings.zone_id, jobs.building_id)
 
