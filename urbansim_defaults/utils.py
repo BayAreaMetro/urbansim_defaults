@@ -751,7 +751,9 @@ def run_developer(forms, agents, buildings, supply_fname, parcel_size,
                   residential=True, bldg_sqft_per_job=400.0,
                   min_unit_size=400, remove_developed_buildings=True,
                   unplace_agents=['households', 'jobs'],
-                  num_units_to_build=None, profit_to_prob_func=None):
+                  num_units_to_build=None, 
+                  profit_to_prob_func=None,
+                  logger=None):
     """
     Run the developer model to pick and build buildings
 
@@ -810,21 +812,26 @@ def run_developer(forms, agents, buildings, supply_fname, parcel_size,
         this.
     profit_to_prob_func: func
         Passed directly to dev.pick
+    logger: logging.Logger object
 
     Returns
     -------
     Writes the result back to the buildings table and returns the new
     buildings with available debugging information on each new building
     """
+    feasibility_df = feasibility.to_frame()
+    feasibility_columns = sorted(feasibility_df.columns.tolist())
 
-    dev = developer.Developer(feasibility.to_frame())
+    dev = developer.Developer(feasibility_df)
 
     target_units = num_units_to_build or dev.\
         compute_units_to_build(len(agents),
                                buildings[supply_fname].sum(),
                                target_vacancy)
 
-    print("{:,} feasible buildings before running developer".format(
+    if logger:
+        logger.debug("run_developer(): feasibility_df:\n{}".format(feasibility_df[feasibility_columns]))
+        logger.debug("run_developer(): {:,} feasible buildings before running developer".format(
           len(dev.feasibility)))
 
     new_buildings = dev.pick(forms,
