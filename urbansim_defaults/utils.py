@@ -206,20 +206,28 @@ def to_frame(tbl, join_tbls, cfg, additional_columns=[]):
 
 def yaml_to_class(cfg):
     """
-    Convert the name of a yaml file and get the Python class of the model
-    associated with the configuration
+    Convert the name of a YAML file and get the Python class of the model
+    associated with the configuration.
 
     Parameters
     ----------
     cfg : str
-        The name of the yaml configuration file
+        The path to the YAML configuration file.
 
     Returns
     -------
-    Nothing
+    type
+        The model class corresponding to the 'model_type' specified in the
+        YAML file. This can be one of: RegressionModel, SegmentedRegressionModel,
+        MNLDiscreteChoiceModel, or SegmentedMNLDiscreteChoiceModel.
     """
     import yaml
-    model_type = yaml.safe_load(open(cfg))["model_type"]
+
+    # Context manager ensures 'cfg' is closed after use
+    with open(cfg) as f:
+        yaml_data = yaml.safe_load(f)
+        model_type = yaml_data.get("model_type")
+
     return {
         "regression": RegressionModel,
         "segmented_regression": SegmentedRegressionModel,
